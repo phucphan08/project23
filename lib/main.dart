@@ -1,11 +1,19 @@
+import './repo/news_repo.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_application_test23/model/newsmodel.dart';
-import 'package:flutter_application_test23/view/newdetail.dart';
-import 'package:flutter_application_test23/viewmodel/fetchapi.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:lazy_load_scrollview/lazy_load_scrollview.dart';
+import './bloc/infinite_load_bloc.dart';
+import 'bloc/infinite_load_bloc.dart';
+import 'view/news_item.dart';
+import './model/newsmodel.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(
+    BlocProvider<InfiniteLoadBloc>(
+      create: (context) => InfiniteLoadBloc(NewRepository()),
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -14,135 +22,101 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      // Hide the debug banner
-      debugShowCheckedModeBanner: false,
-      title: 'Home',
+      title: 'Flutter Demo',
       theme: ThemeData(
-        // Define the default brightness and colors.
-        // brightness: Brightness.dark,
-        primaryColor: Colors.lightBlue[800],
-
-        // Define the default font family.
-        fontFamily: 'Georgia',
-
-        // Define the default `TextTheme`. Use this to specify the default
-        // text styling for headlines, titles, bodies of text, and more.
-        textTheme: const TextTheme(
-          headline1: TextStyle(fontSize: 72.0, fontWeight: FontWeight.bold),
-          headline6: TextStyle(fontSize: 36.0, fontStyle: FontStyle.italic),
-          bodyText2: TextStyle(fontSize: 14.0, fontFamily: 'Hind'),
-        ),
+        primarySwatch: Colors.blue,
+        visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
-      home: const HomePage(),
+      home: const MyHomePage(),
     );
   }
 }
 
-class HomePage extends StatefulWidget {
-  const HomePage({Key? key}) : super(key: key);
+class MyHomePage extends StatefulWidget {
+  const MyHomePage({Key? key}) : super(key: key);
 
   @override
-  _HomePageState createState() => _HomePageState();
+  _MyHomePageState createState() => _MyHomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
-  List<NewsModel> newslist = <NewsModel>[];
-  getNews() async {
-    News newsdata = News();
-    await newsdata.getNews();
-    newslist = newsdata.datatobesavedin;
-    setState(() {
-      // _loading = false;
-      newslist = newsdata.datatobesavedin;
-    });
+class _MyHomePageState extends State<MyHomePage> {
+  late InfiniteLoadBloc _bloc;
+  late int _currentLenght;
+  List<NewsModel> _data = [];
+
+  void _loadMoreData() {
+    _bloc.add(GetMoreInfiniteLoad(_currentLenght, 10));
   }
 
   @override
   void initState() {
+    _bloc = BlocProvider.of<InfiniteLoadBloc>(context);
     super.initState();
-    getNews();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        centerTitle: true,
-        title: const Text(
-          'News',
-        ),
+        title: const Text('News'),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(5),
-        child: Column(
-          children: [
-            newslist.isNotEmpty
-                ? Expanded(
-                    child: ListView.builder(
-                      itemCount: newslist.length,
-                      itemBuilder: (context, index) {
-                        return Card(
-                            margin: const EdgeInsets.all(10),
-                            child: NewsTile(newslist[index]));
-                      },
-                    ),
-                  )
-                : Container()
-          ],
-        ),
+      body: BlocBuilder<InfiniteLoadBloc, InfiniteLoadState>(
+        builder: (context, state) {
+          if (state is InfiniteLoadInitial) {
+            context.read<InfiniteLoadBloc>().add(GetInfiniteLoad());
+          }
+          if (state is InfiniteLoadLoaded || state is InfiniteLoadMoreLoading) {
+            if (state is InfiniteLoadLoaded) {
+              _data = state.data;
+              _currentLenght = state.count;
+            }
+            return _buildListNews(state);
+          } else if (state is InfiniteLoadLoading) {
+            return const Center(child: CircularProgressIndicator());
+          } else if (state is NoInternet) {
+            return Center(
+                child: Column(
+              children: <Widget>[
+                const Text('Check your internet'),
+                TextButton(
+                    onPressed: () => _bloc.add(GetInfiniteLoad()),
+                    child: const Text("Try load again"))
+              ],
+            ));
+          } else {
+            return Center(
+                child: Column(
+              children: <Widget>[
+                const Text('Load error'),
+                TextButton(
+                    onPressed: () => _bloc.add(GetInfiniteLoad()),
+                    child: const Text("Try load again"))
+              ],
+            ));
+            // const Center(child: Text("Error"), );
+          }
+        },
       ),
     );
   }
-}
 
-class NewsTile extends StatelessWidget {
-  final NewsModel news;
-  // ignore: use_key_in_widget_constructors
-  const NewsTile(this.news);
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      dense: true,
-      visualDensity: const VisualDensity(horizontal: 4),
-      leading: CachedNetworkImage(
-        imageUrl: news.url,
-        placeholder: (context, url) => const CircularProgressIndicator(),
-        errorWidget: (context, url, error) => const Icon(Icons.error),
-      ),
-      title: Text(news.title, overflow: TextOverflow.ellipsis, maxLines: 2),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildListNews(InfiniteLoadState state) {
+    return LazyLoadScrollView(
+      onEndOfPage: () => _loadMoreData(),
+      child: ListView(
         children: [
-          Text(
-            news.description,
-            overflow: TextOverflow.ellipsis,
-            maxLines: 2,
-            style: const TextStyle(
-                fontSize: 16, color: Colors.amber, fontWeight: FontWeight.w200),
-          ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Text(
-              news.date,
-              overflow: TextOverflow.ellipsis,
-              maxLines: 2,
-              textAlign: TextAlign.right,
-              style: TextStyle(
-                  fontSize: 10,
-                  color: Colors.blue[900],
-                  fontWeight: FontWeight.w200),
-            ),
-          ),
+          ListView.builder(
+              shrinkWrap: true,
+              itemCount: _data.length,
+              physics: const NeverScrollableScrollPhysics(),
+              itemBuilder: (_, i) {
+                return NewItem(data: _data[i]);
+              }),
+          (state is InfiniteLoadMoreLoading)
+              ? const Center(child: CircularProgressIndicator())
+              : const SizedBox(),
         ],
       ),
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-              builder: (context) => ScreenArticleDetails(news: news)),
-        );
-      },
     );
   }
 }
